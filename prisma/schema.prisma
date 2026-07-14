@@ -1,0 +1,213 @@
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique 
+  code      String   @unique 
+  createdAt DateTime @default(now())
+  users     User[]   
+}
+
+model User {
+  id                     Int              @id @default(autoincrement())
+  name                   String
+  email                  String           @unique
+  cnic                   String           @unique
+  password               String
+  role                   String           
+  createdAt              DateTime         @default(now())
+  departmentId           Int?
+  department             Department?      @relation(fields: [departmentId], references: [id])
+  
+  // Relations to Ticket
+  createdTickets         Ticket[]         @relation("CreatedTickets")
+  closedTickets          Ticket[]         @relation("ClosedTickets")
+  forwardedTickets       Ticket[]         @relation("ForwardedTickets")
+  reassignedTickets      Ticket[]         @relation("ReassignedTickets")
+  revertedTickets        Ticket[]         @relation("RevertedTickets")
+  
+  // 🎯 NEW: Active status tracker back-link for single primary user tracking
+  currentlyAssignedTickets Ticket[]      @relation("CurrentAssignedTickets")
+  
+  // Relations to TicketAssignee (Junction Table handles collaborative/all history work)
+  assignedTickets        TicketAssignee[] @relation("UserAssignments")
+
+  commentsWritten        TicketComment[]
+}
+
+model Ticket {
+  id                     Int              @id @default(autoincrement())
+  title                  String           
+  description            String           @db.Text
+  status                 String           @default("OPEN")     
+  priority               String           @default("MEDIUM")   
+  impact                 String           @default("MEDIUM")   
+  urgency                String           @default("MEDIUM")   
+  resolvingDepartment    String           
+  resolverRole           String?          
+  
+  // Creator
+  createdById            Int              
+  createdBy              User             @relation("CreatedTickets", fields: [createdById], references: [id])
+  
+  // 👥 Multiple People Resolving / Collaborators (Junction Table Link)
+  assignees              TicketAssignee[]
+
+  // 🎯 NEW FIELD: Active primary person working on the ticket right now
+  currentAssignedToId    Int?
+  currentAssignedTo      User?            @relation("CurrentAssignedTickets", fields: [currentAssignedToId], references: [id])
+
+  // 🛠️ TRACKING FIELDS (Null by default)
+  closedById             Int?
+  closedBy               User?            @relation("ClosedTickets", fields: [closedById], references: [id])
+  
+  currentForwardedById   Int?
+  currentForwardedBy     User?            @relation("ForwardedTickets", fields: [currentForwardedById], references: [id])
+  
+  currentReassignedById  Int?
+  currentReassignedBy    User?            @relation("ReassignedTickets", fields: [currentReassignedById], references: [id])
+  
+  currentRevertedById    Int?
+  currentRevertedBy      User?            @relation("RevertedTickets", fields: [currentRevertedById], references: [id])
+  
+  // Tracking status (e.g., "FORWARDED", "REASSIGNED", "REVERTED", or "NONE")
+  routingStatus          String           @default("NONE")
+
+  expectedResolveMinutes Int              
+  actualResolveMinutes   Int?           
+  deadlineAt             DateTime        
+  createdAt              DateTime         @default(now())     
+  updatedAt              DateTime         @updatedAt           
+  closedAt               DateTime?        
+  comments               TicketComment[]
+
+  @@index([status])
+  @@index([currentAssignedToId])
+}
+
+// 🎯 TicketAssignee (Junction Table for Multiple Resolvers / History Trail)
+model TicketAssignee {
+  ticketId       Int
+  userId         Int
+  assignedAt     DateTime @default(now())
+
+  // Optional history hooks tracking context per assignment
+  forwardedFrom  String?  
+  revertedFrom   String?  
+  reassignedFrom String?  
+
+  // Relations Mapping
+  ticket         Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  user           User     @relation("UserAssignments", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([ticketId, userId]) 
+  @@index([ticketId])
+  @@index([userId])
+}
+
+model TicketComment {
+  id        Int      @id @default(autoincrement())
+  body      String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ticketId  Int
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  Int
+  author    User     @relation(fields: [authorId], references: [id])
+
+  @@index([ticketId])
+}
+
+model EmployeePerformance {
+  id                         Int      @id @default(autoincrement())
+  employeeId                 Int
+  period                     String   // E.g., "JULY_2026", "WEEK_2026_W28"
+  
+  // 📥 Total Assigned Metrics
+  ticketsAssignedTotal       Int      @default(0)
+  
+  // 📊 Priority Breaks for Assigned Tickets
+  assignedCriticalCount      Int      @default(0)
+  assignedHighCount          Int      @default(0)
+  assignedMediumCount        Int      @default(0)
+  assignedLowCount           Int      @default(0)
+  
+  // 🔒 Closed Tickets (Status == RESOLVED & closedAt != null)
+  ticketsClosedTotal         Int      @default(0)
+  
+  // ⏱️ Deadline SLA Breakdown (Status == RESOLVED & closedAt tracking)
+  closedInTimeTotal          Int      @default(0)
+  closedAfterDeadline        Int      @default(0)
+  
+  // ⚙️ Active Tickets In Progress (Status NOT IN [RESOLVED, CLOSED])
+  activeWorkloadTotal        Int      @default(0)
+  activeWorkloadBreached     Int      @default(0)
+  
+  // 🎯 Priority Breaks for "Closed In Time" Tickets
+  inTimeCriticalCount        Int      @default(0)
+  inTimeHighCount            Int      @default(0)
+  inTimeMediumCount          Int      @default(0)
+  inTimeLowCount             Int      @default(0)
+  
+  // 🚨 Priority Breaks for "Closed After Deadline" Tickets
+  afterDeadlineCriticalCount Int      @default(0)
+  afterDeadlineHighCount     Int      @default(0)
+  afterDeadlineMediumCount   Int      @default(0)
+  afterDeadlineLowCount      Int      @default(0)
+
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@unique([employeeId, period])
+  @@index([employeeId])
+}
+
+// 🏢 NEW MODEL: Department Performance Progress Tracking Table
+model DepartmentPerformance {
+  id                           Int      @id @default(autoincrement())
+  departmentId                 Int
+  period                       String   // E.g., "JULY_2026"
+
+  // 📥 Total Handled / Assigned to Department (+1 on Assign, -1 on Reassign)
+  ticketsAssignedTotal         Int      @default(0)
+  assignedCriticalCount        Int      @default(0)
+  assignedHighCount            Int      @default(0)
+  assignedMediumCount          Int      @default(0)
+  assignedLowCount             Int      @default(0)
+
+  // 🔒 Resolved Progress (Status == "RESOLVED" & closedAt != null)
+  ticketsResolvedTotal         Int      @default(0)
+  resolvedCriticalCount        Int      @default(0)
+  resolvedHighCount            Int      @default(0)
+  resolvedMediumCount          Int      @default(0)
+  resolvedLowCount             Int      @default(0)
+
+  // ⏱️ SLA Splits (closedAt <= deadlineAt + 2 working hours [9-6 Mon-Fri])
+  closedInTimeTotal            Int      @default(0)
+  inTimeCriticalCount          Int      @default(0)
+  inTimeHighCount              Int      @default(0)
+  inTimeMediumCount            Int      @default(0)
+  inTimeLowCount               Int      @default(0)
+
+  closedAfterDeadlineTotal     Int      @default(0)
+  afterDeadlineCriticalCount   Int      @default(0)
+  afterDeadlineHighCount       Int      @default(0)
+  afterDeadlineMediumCount     Int      @default(0)
+  afterDeadlineLowCount        Int      @default(0)
+
+  // ⚙️ Current Active Workload (Status NOT IN ["RESOLVED", "CLOSED"])
+  currentWorkingTotal          Int      @default(0)
+  currentWorkingBreachedTotal  Int      @default(0) // (currentTime > deadlineAt + 2 working hours)
+
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  @@unique([departmentId, period])
+  @@index([departmentId])
+}
