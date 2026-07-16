@@ -28,40 +28,31 @@ export class UsersService {
   ) {}
 
   // 📧 Supabase Integration via native HTTPS API (Safe from port blocks)
+  // 📧 Supabase Integration via native HTTPS API (Signup Flow)
   private async sendCredentialsEmail(email: string, name: string, role: string, isReset = false) {
     try {
-      // 📤 Supabase built-in auth logic ko request hit karega taake automatic template trigger ho
-      const response = await fetch(`${this.SUPABASE_URL}/auth/v1/recover`, {
+      // Signup endpoint ko hit karenge taake naya user auth table mein aaye aur email fire ho
+      const response = await fetch(`${this.SUPABASE_URL}/auth/v1/signup`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'apikey': this.SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ email: email.toLowerCase() }),
+        body: JSON.stringify({ 
+          email: email.toLowerCase(),
+          password: this.DEFAULT_PASSWORD, // 👈 Yeh lazmi hai signup ke liye
+          options: {
+            data: { name: name, role: role } // Metadata taake template mein naam show ho sake
+          }
+        }),
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.msg || 'Supabase Auth API responded with error');
+        throw new Error(errorData.msg || errorData.message || 'Supabase Auth API error');
       }
 
-      console.log(`📧 Supabase welcome verification workflow initialized for: ${email}`);
-      
-      // 💡 Custom HTML Note:
-      // Kyunki hum Supabase ka platform channel directly utilize kar rahe hain, 
-      // aap apne Supabase Dashboard -> Authentication -> Emails -> Templates mein ja kar
-      // "Reset Password" ya "Confirm Signup" template ke andar yeh text aur design daal dein:
-      /*
-        <h2>Welcome to the team, {{ .User.user_metadata.name }}!</h2>
-        <p>Your corporate workspace profile configuration has been successfully generated.</p>
-        <p><strong>Temporary Access Key:</strong> ticketFlowemployee</p>
-        <p style="color: red; font-weight: bold;">
-          ⚠️ Security Alert: This temporary credential configuration is NOT safe. 
-          Kindly change your password inside your profile layout immediately right after your first login.
-        </p>
-        <br/>
-        <a href="{{ .ConfirmationURL }}">Click here to verify and complete authentication layout setup</a>
-      */
+      console.log(`📧 Supabase welcome verification/signup workflow initialized for: ${email}`);
     } catch (error) {
       console.error(`❌ Supabase default channel failed to transmit email to ${email}:`, error);
     }
